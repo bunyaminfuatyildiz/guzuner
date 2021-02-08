@@ -1,0 +1,376 @@
+/* Gauss procedure for
+Konya, L.(2006). 
+Exports and growth: Granger causality analysis on OECD Countries 
+with a panel data approach. 
+Economic Modelling 23: 978-992.
+∂
+When you use this code, please cite:
+Kar, M., Nazlioglu, S., Agir, H. (2011) 
+"Financial Development and Economic Growth Nexus in the MENA Countries: 
+Bootstrap Panel Granger Causality Analysis". 
+Economic Modelling 28(1-2): 685-693.
+
+Menyah, K., Nazlioglu, S., Wolde-Rufael, Y. (2014) 
+"Financial Development, Trade Openness and Economic Growth in African Countries: 
+New Insights from a Panel Causality Approach". 
+Economic Modelling 37: 386-394.
+
+The procedure is written by Saban Nazlioglu (snazlioglu@pau.edu.tr)
+Any bugs are welcome; 18 April, 2016
+*/
+
+new;
+cls;
+
+Nb  =1000;    /*Number of bootstrap replications*/
+t   =28;      /*number of time periods*/
+n   =9;       /*number of equations (cross-sections)*/
+pmax=3;       /*maximum number of lags*/
+ic  =1; 	  /*Information criterion
+                1=Akaike, 2=Schwarz */
+
+
+load y1[t,n]=lnfd.txt;
+load y2[t,n]=lninc.txt;   /*Ho:y2 does not cause y1*/ 
+
+ 
+/*Wald statistics from SUR estimation*/
+p=lag_opt(pmax,ic);
+t=t-p;
+y ={}; yl={};
+i=1;
+do while i<=n;
+    {a,b}=lagp(y1[.,i]~y2[.,i],p);
+    y =y|a[.,1]; 
+    yl=yl|b;
+i=i+1;
+endo;
+
+{Wstat,caus_param,caus_se,esur,yhatur,aic,sbc}=sur_wald(y,yl,n,t,p);
+{aa,bb,cc,eHo,yhatr,aicb,sbcb}=sur_wald(y,yl[.,1],n,t,p);
+{pvalboot,cvboot}   =bootstrap_dist(Nb);
+
+lnpval=zeros(N,1);
+for i(1,N,1);
+    if pvalboot[i]==0; lnpval[i]=0; endif;
+    if pvalboot[i]>0;  lnpval[i]=ln(pvalboot[i]); endif;   
+endfor;
+Fisher=-2*sumc(lnpval);
+    
+{LM,CDlm,CD}=CDtests(y1,y2);
+        yy=reshape(y1,T*N,1);
+        xx=reshape(y2,T*N,1);
+{lma} =lmadj(yy,xx,T,N);
+
+format /rd 8,3;
+"     i     Wald   Boot-pval    Critical Values";
+"                               1%       5%      10% ";;
+seqa(1,1,n)~Wstat~pvalboot~cvboot;
+"-----------------------------------";
+"Panel Fisher";;Fisher;
+"p-value     ";;cdfchic(Fisher,2*N);
+"";
+"N ";;n;
+"T ";;t;
+"Lag";;p;
+
+print "CD Tests                     Stat       prob     ";
+print "LM    (Breusch,Pagan 1980) " LM;;   cdfchic(LM,N*(N-1)/2);
+print "CDlm  (Pesaran 2004 CDlm)  " CDlm;; cdfnc(abs(CDlm));
+print "CD    (Pesaran 2004 CD)    " CD;;   cdfnc(abs(CD)); 
+print "LMadj (Pesaran et al. 2008)" lma;;  cdfnc(lma);  
+
+/*Procedures*/
+
+/*selection of optimal lag*/
+proc(1)=lag_opt(pmax,ic);
+local aicp,sbcp,p,t,y,yl,a,b,i;
+local Wstat,caus_param,caus_se,esur,yhatur,aic,sbc;
+
+aicp=zeros(pmax,1);
+sbcp=zeros(pmax,1);
+    
+for p(1,pmax,1);
+    t=rows(y1)-p;
+    y ={}; yl={};
+    for i(1,n,1);
+        {a,b}=lagp(y1[.,i]~y2[.,i],p);
+        y =y|a[.,1]; 
+        yl=yl|b;
+    endfor;
+        {Wstat,caus_param,caus_se,esur,yhatur,aic,sbc}=sur_wald(y,yl,n,t,p);
+        aicp[p]=aic;
+        sbcp[p]=sbc;
+endfor;
+    if ic==1; p=minindc(aicp); endif;
+    if ic==2; p=minindc(sbcp); endif;
+retp(p);
+endp;
+  
+
+/*SUR estimation and Wald statistics*/
+proc(7)=sur_wald(y,yl,n,t,p);
+local x,e,k,bols,sols,i,yi,xi,bi,ei,vi,cov,IT,xx,bsur,esur,yhat;
+local vcsur,omega,vsur,sesur,tsur,r,rmat,surwald,br,sr,aic,sbc;
+ 
+ x=ones(n*t,1)~yl;
+ e=zeros(t,n);
+ k=cols(yl)+1;
+ bols=zeros(n*k,1);
+ sols=zeros(n*k,1);
+ i=1;
+ do while i<=N;
+    yi=y[(i-1)*t+1:i*t];
+    xi=x[(i-1)*t+1:i*t,.];
+    bi=yi/xi;
+    ei=yi-xi*bi;
+    vi=diag((ei'ei/(t-rows(bi))*inv(xi'xi)));
+    e[.,i]=ei;
+    bols[(i-1)*k+1:i*k]=bi;
+    sols[(i-1)*k+1:i*k]=sqrt(vi);
+ i=i+1;
+ endo;
+
+ //e=reshape(e,t,n);
+ cov=e'e/(t-k);
+ IT =eye(t);
+ xx=zeros(t*n,n*k);
+ i=1;
+ do while i<=n;
+    xx[(i-1)*t+1:i*t,(i-1)*k+1:i*k]=x[(i-1)*t+1:i*t,.];
+ i=i+1;
+ endo;
+
+ bsur =inv(xx'*inv(cov.*.IT)*xx)*xx'*inv(cov.*.IT)*y;
+ esur =y-xx*bsur;
+  esur=(reshape(esur,n,t))';
+ yhat =xx*bsur;
+  yhat=(reshape(yhat,n,t))';
+ vcsur=esur'esur/(t-k); 
+ omega=inv(xx'*inv(vcsur.*.IT)*xx); 
+ vsur =diag(omega);
+ sesur=sqrt(vsur);
+ tsur =bsur./sesur;
+ aic  =ln(det(vcsur))+(2*N*k*p/T);
+ sbc  =ln(det(vcsur))+(N*k*p/T)*ln(T); 
+ 
+ surwald={};
+ br={};
+ sr={};
+ r=k;
+ do while r<=rows(bsur);
+    rmat=zeros(n*k,1);
+    rmat[r]=1;
+    rmat=rmat';
+    surwald=surwald|(rmat*bsur)'*inv(rmat*omega*rmat')*(rmat*bsur);
+    br=br|bsur[r];
+    sr=sr|sesur[r];
+ r=r+k;
+ endo;
+retp(surwald,br,sr,esur,yhat,aic,sbc);
+endp;
+
+/*Bootstrapt sampling*/
+proc(1)=bootstrap_sample(resid,yhat);
+local tt,i,ord,resb,yb;
+  
+  tt  =rows(resid);
+  resb=zeros(t+30,n);
+  i=1;
+  do while i<=rows(resb);
+    ord=trunc(((tt-1)-1+1)*rndu(1,1)+1);
+    resb[i,.]=resid[ord,.];
+  i=i+1;
+  endo;
+
+  resb=resb[31:rows(resb),.];
+  yb=resb;
+  i=1;
+  do until i>n;
+    yb[.,i]=yhat[.,i]+resb[.,i];
+  i=i+1;
+  endo;
+retp(yb);
+endp;
+
+/*Bootstrapt distribution*/
+proc(2)=bootstrap_dist(Nboot);
+local waldboot,s,yb,ystar,y,yl,i,a,b,Wboot;
+local br,sr,esur,yh,cvboot,Wb,cv1,cv5,cv10;
+local pvalboot,test,rejectWb,Wbr,aicbb,sbcbb;
+
+  Waldboot=zeros(nboot,n);
+  s=1;
+  do while s<=nboot;
+    {yb} =bootstrap_sample(eHo,yhatr);
+    ystar=y1[1:p,.]|yb;
+    y ={}; 
+    yl={};
+    i=1;
+    do while i<=n;
+        {a,b}=lagp(ystar[.,i]~y2[.,i],p);
+        y =y|a[.,1];
+        yl=yl|b;
+    i=i+1;
+    endo;
+    {Wboot,br,sr,esur,yh,aicbb,sbcbb}=sur_wald(y,yl,n,t,p);
+     waldboot[s,.] =Wboot';
+  s=s+1;
+  endo;
+
+  cvboot={};
+  i=1;
+  do while i<=n;
+    Wb    =sortc(waldboot[.,i],1);
+    cv1   =Wb[nboot*0.99];
+    cv5   =Wb[nboot*0.95];
+    cv10  =Wb[nboot*0.90];
+    cvboot=cvboot|cv1~cv5~cv10;
+  i=i+1;
+  endo;
+
+  pvalboot=zeros(n,1);
+  i=1; 
+  do while i<=n;
+    test    =Wstat[i];
+    Wb      =sortc(waldboot[.,i],1);
+    rejectWb=0;
+    b=1;
+    do while b<=Nboot;
+        if test>Wb[b]; Wbr=1; else; Wbr=0; endif;
+        rejectWb =rejectWb+Wbr;
+    b=b+1;
+    endo;
+  pvalboot[i]=1-rejectWb/Nboot;
+  i=i+1;
+  endo;
+retp(pvalboot,cvboot);
+endp;
+
+/*OLS estimation*/
+proc(4)=ols(y,yl,t);
+local k,x,rss,e,bols,sols,i,yi,xi,bi,ei,vi;
+
+ x=ones(n*t,1)~yl;
+ rss=zeros(n,1);
+ e=zeros(t,n);
+ k=cols(yl)+1;
+ bols=zeros(n*k,1);
+ sols=zeros(n*k,1);
+ i=1;
+ do while i<=N;
+    yi=y[(i-1)*t+1:i*t];
+    xi=x[(i-1)*t+1:i*t,.];
+    bi=yi/xi;
+    ei=yi-xi*bi;
+    rss[i]=ei'ei;
+    vi=diag((ei'ei/(t-rows(bi))*inv(xi'xi)));
+    e[.,i]=ei;
+    bols[(i-1)*k+1:i*k]=bi;
+    sols[(i-1)*k+1:i*k]=sqrt(vi);
+ i=i+1;
+ endo;
+retp(bols,sols,rss,e);
+endp;
+
+/*Cross-section dependency tests*/
+proc(3)=CDtests(y,x);
+local n,t,e,b,i,cx,cxd,LM,df,CDlm,CD;
+
+t=rows(y);
+n=cols(y);
+e=zeros(T,N);
+for i(1,N,1);
+      b=y[.,i]/x;
+      e[.,i]=y[.,i]-x*b;
+endfor;
+
+cx =corrx(e);
+cxd=vech(cx);
+
+LM  =T*((cxd'cxd)-N);                      /*Breusch-Pagan (1980) LM test*/
+CDlm=sqrt((1/(N^2-N)))*(LM-(N^2-N)/2);   /*Pesaran (2004) CDlm test*/  
+CD  =sqrt((2*T)/(N^2-N))*(sumc(cxd)-N);   /*Pesaran (2004) CD test*/
+retp(LM,CDlm,CD);
+endp;
+
+proc(1)=lmadj(y,x,T,N);
+local k,mmat,emat,x_i,px_i,stat_ij,i,j,e_i,v_i,e_j,v_j,
+      cov_ij,m_j,m_i,rho_ij,mu_ij,a1_ij,a2_ij,vsq_ij,sij,lma;
+   
+    k=cols(x);
+    mmat={};
+    emat={};
+    i=1;
+    do while i<=n;
+        x_i=x[1+(i-1)*T:i*T,.];
+        px_i=x_i*inv(x_i'x_i)*x_i';
+        mmat=mmat~(eye(t)-px_i);
+        emat=emat~((eye(t)-px_i)*y[1+(i-1)*T:i*T]);
+        i=i+1;
+    endo;
+    
+    stat_ij=0;
+    i=1;
+    do while i<=n-1;
+        m_i=mmat[.,1+(i-1)*t:i*t];
+        e_i=(emat[.,i]-meanc(emat[.,i]));
+        v_i=sumc(e_i^2);
+        j=i+1;
+        do while j<=n;
+            m_j=mmat[.,1+(j-1)*t:j*t];
+            e_j=(emat[.,j]-meanc(emat[.,j]));
+            v_j=sumc(e_j^2);
+            cov_ij=(e_i'e_j);
+            rho_ij=cov_ij/(sqrt(v_i)*sqrt(v_j));
+            sij=sumc(diag(m_i*m_j));
+            mu_ij= sij/(t-k);
+            a2_ij=3*(((t-k-8)*(t-k+2)+24)/((t-k+2)*(t-k-2)*(t-k-4)))^2;
+            a1_ij=a2_ij-1/(t-k)^2;
+            vsq_ij=(sij^2)*a1_ij + 2*sumc(diag(m_i*m_j*m_i*m_j))*a2_ij;
+            stat_ij=stat_ij+(((t-k)*(rho_ij^2) - mu_ij)/sqrt(vsq_ij));
+            j=j+1;
+        endo;
+        i=i+1;
+    endo;   
+    lma=sqrt(2/(n*(n-1)))*(stat_ij);
+    retp(lma);
+endp;
+
+/*generating y and ylags adjusted for p lags*/
+proc(2)=lagp(y,pmax);
+local nk,p,ylag,i,j,yt,yl;
+    nk=cols(y);
+    p=1;
+    do while p<=pmax;
+        ylag =zeros(rows(y),nk*p);
+    i=1;
+    do while i<=nk;    
+        j=1;
+        do while j<=p;     
+            ylag[.,j+p*(i-1)]=lagn(y[.,i],j);
+            
+        j=j+1;
+        endo;
+    i=i+1;
+    endo;
+        yt=trimr(y,p,0);
+        yl=trimr(ylag,p,0);        
+    p=p+1;
+    endo;
+retp(yt,yl);
+endp;
+
+proc(1)= lagn(x,n);
+    local y;
+    if n>0; y=zeros(n,cols(x))|trimr(x,0,n);
+    else;   y=trimr(x,abs(n),0)|zeros(abs(n),cols(x));
+    endif;
+retp(y);
+endp;
+
+proc tr1(M);
+  local x;
+  x=sumc(diag(M));
+  retp(x);
+endp;

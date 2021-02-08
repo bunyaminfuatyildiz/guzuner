@@ -1,0 +1,36 @@
+'written by Saban Nazlioglu (snazlioglu@pau.edu.tr)
+'Loop for: Testing for Granger causality based on panel vector error correction model
+
+pageunstack(page=fmolsres) crossid dateid @ lnfd lninc lnrem
+
+scalar n=9			'number of countries
+
+'loop for obtaining fmols residuals
+for !i= 1 to n
+	equation eqfmols{!i}.cointreg(method=fmlols, bw=neweywest, info=aic) lnfd{!i}  lninc{!i} lnrem{!i}
+	eqfmols{!i}.makeresids ect{!i}
+next
+
+pagestack(page=pvecm) lnfd? lninc? lnrem? ect? @ lnfd? lninc? lnrem? ect?
+
+
+scalar kmax=3		'maximum lags
+
+'loop for selecting optimal lag	    	
+	!mininfocrit=999999 
+    
+	for !lag=1 to kmax
+          		var pvar.ls 1 !lag d(lnfd) d(lninc) d(lnrem)
+          	
+		if pvar.@aic<!mininfocrit then
+               !bestlag=!lag
+	   	!mininfocrit=pvar.@aic
+		scalar optimallag=!bestlag
+   		endif
+	next
+
+'estimation of panel vector error correction model
+var pvecm.ls 1 !bestlag d(lnfd) d(lninc) d(lnrem) @ c ect(-1)
+
+'testing for panel Granger causality
+freeze(pcausality) pvecm.testexog

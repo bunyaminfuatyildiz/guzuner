@@ -1,0 +1,197 @@
+/*  Pesaran and Yamagata (2008) "Testing Slope Homogeneity
+    in Large Panels 
+
+    - The procedure below compute Delta_Tilde Statistic 
+    - We cannot take any responsibility of damages
+      caused by using this code. 
+
+    {b_wfe,Delta_tilde,Delta_Tilde_adj}=Deltatest(y,x,n,ti,k1) 
+    
+    - Necessary Imputs are the followings:
+        BALANCED PANEL CASE              
+        y = (NT x 1) vector, N sets of T observations 
+        x = (NT x k) matrix, N sets of T x k obs 
+            - !!!!NO INTERCEPT SHOULD BE INCLUDED!!!!                       
+            - x is ordered as x=(X1,X2), where coeffients on X2
+              is under the test of slope homogeneity, but coefficients
+              on X1 are allowed heterogeneous.
+        ti: if balanced, ti = T, a scalor
+        k1: number of vectors in X1 where Hetero slope allowed. 
+            (k1=0 if only intercept is allowed to be heterogeneous)
+
+        UNBALANCED PANEL CASE
+        y = (sum(Ti)over i x 1) vector, ordered T1 observations of group 1, 
+            T2 set of group 2,.... 
+        x = (sum(Ti)over i x k) matrix, ordered T1 observations of group 1, 
+            T2 set of group 2,.... 
+        n : number of cross section units 
+        ti: if unbalanced, (N x 1) vector of T_i's.
+        k1: number of vectors in X1 where Hetero slope allowed. 
+            (k1=0 if only intercept is allowed to be heterogeneous)
+
+    - Outputs are the followings:
+        b_wfe: weighted fixed effects estimator 
+        Delta_tilde: delta_tilde statistic (See Remark 3 of Pesaran & Yamagata (2008))
+        Delta_tilde_adj: Adjusted delta_tilde statistic  (See Remark 3 of Pesaran & Yamagata (2008))
+        for adjusted version, T in the eqaution (34) is replaced by the average of Ti for unbalanced panel.        
+            Under the null of slope homogeneity,
+            Delta Statistic -> N(0,1) as N and T tend
+            infinity with particular expansion rate of N and T: see Pesaran & Yamagata (2008)
+
+    - To suppress the reports, set out=0 (line 35) below.   
+*/
+
+t=144;                       /*time period*/
+n=6;                        /*cross-section dimension*/
+
+
+load y[t,n] =exp.txt;       /*dependent variable*/
+load x1[t,n]=imp.txt;       /*1. regressor*/
+
+
+xt=zeros(t,n);
+for i(1,n,1);
+xt[.,i]=seqa(1,1,t);
+endfor;
+
+data=xt~x1;
+
+
+/*do not change here after if you are not familiar with GAUSS*/
+k=2;                        /* k=1 only trend k=2 trend and 1 regressor */
+k1=1; 
+
+x=zeros(t*n,k);
+j=1;
+do while j<=k;
+    if j==1;    x[.,j]=reshape(data[.,j:n]',T*N,1); endif;
+    if j>1;     x[.,j]=reshape(data[.,(j-1)*n+1:j*n]',T*N,1); endif;   
+    y=reshape(y',T*N,1);
+j=j+1;
+endo;
+
+ 
+
+  
+
+data=y;
+ti=rows(data)/n;
+
+{b_wfe,Delta_tilde,Delta_tilde_adj}=Deltatest(y,x,n,ti,k1);
+
+proc(3)=Deltatest(y,x,n,ti,k1);
+
+local out,t_vec,breps,xx,x1,x2,k2,k,cumt,bi_hat_vec,num,den;
+local i,y_i,x1_i,x2_i,m_i,num_i,den_i,b_fe,zigsq_til_vec;
+local b_wfe,S_tilde,Dif_vec,Dif_i,Delta_tilde;
+local tbar,mu,var,Delta_tilde_adj;
+
+out=1;/** if out=1, report output, if out=0, no report **/
+
+if rows(ti)==1;t_vec=ti*ones(n,1);
+else; t_vec = ti;
+endif;
+
+xx=ones(sumc(t_vec),1)~x;
+x1=xx[.,1:k1+1];        /** allowed heterogenous slope **/
+x2=xx[.,k1+2:cols(xx)];/** under test of slope homogeneity **/
+k2=cols(x2);
+k=cols(x);
+
+cumt=0|cumsumc(t_vec);
+
+/** loop to obtain bi_hat and Initial FE estimator **/
+bi_hat_vec=zeros(n,k2);
+num=zeros(k2,1);
+den=zeros(k2,k2);
+i=1;
+do while i<=n;
+    y_i=y[cumt[i]+1:cumt[i+1]];
+    x1_i=x1[cumt[i]+1:cumt[i+1],.];
+    x2_i=x2[cumt[i]+1:cumt[i+1],.];
+    
+    m_i=eye(t_vec[i])-x1_i*inv(x1_i'x1_i)*x1_i';
+     num_i=x2_i'm_i*y_i;
+    den_i=x2_i'm_i*x2_i;
+    bi_hat_vec[i,.]=(inv(den_i)*num_i)';
+    num=num+num_i;
+    den=den+den_i;
+
+    i=i+1;
+endo;
+
+b_fe=inv(den)*num;/** initial FE estimator **/
+
+/** loop to obtain zigsq_til and WFE estimator **/
+zigsq_til_vec=zeros(n,1);
+num=zeros(k2,1);
+den=zeros(k2,k2);
+i=1;
+do while i<=n;
+    y_i=y[cumt[i]+1:cumt[i+1]];
+    x1_i=x1[cumt[i]+1:cumt[i+1],.];
+    x2_i=x2[cumt[i]+1:cumt[i+1],.];
+    
+    m_i=eye(t_vec[i])-x1_i*inv(x1_i'x1_i)*x1_i';
+    
+    zigsq_til_vec[i]=(y_i-x2_i*b_fe)'m_i*(y_i-x2_i*b_fe)/(t_vec[i]-k1-1);
+    num_i=x2_i'm_i*y_i/zigsq_til_vec[i];
+    den_i=x2_i'm_i*x2_i/zigsq_til_vec[i];
+    den=den+den_i;
+    num=num+num_i;
+    i=i+1;
+endo;
+b_wfe=inv(den)*num;/** WFE estimator **/
+
+/** loop to obtain Delta_tilde Statistic **/
+S_tilde=0;
+Dif_vec=bi_hat_vec-b_wfe';
+i=1;
+do while i<=n;
+    Dif_i=dif_vec[i,.]';
+    y_i=y[cumt[i]+1:cumt[i+1]];
+    x1_i=x1[cumt[i]+1:cumt[i+1],.];
+    x2_i=x2[cumt[i]+1:cumt[i+1],.];    
+    m_i=eye(t_vec[i])-x1_i*inv(x1_i'x1_i)*x1_i';
+    
+    S_tilde=S_tilde+Dif_i'(x2_i'm_i*x2_i/zigsq_til_vec[i])*Dif_i;
+    i=i+1;
+endo;
+Delta_tilde=sqrt(n)*(((S_tilde/n)-k2)/sqrt(2*k2));
+
+tbar=meanc(t_Vec);
+var=2*k2*(tbar-k-1)/(tbar-k1+1);
+Delta_tilde_adj=sqrt(n)*(((S_tilde/n)-k2)/sqrt(var));
+
+if out==0;goto NOREPORT;
+else;
+"++++++++++++++++++++++++++++++++++++++++++++++++++++++";
+"Slope Hmogeneity Tests in Pesaran and Yamagata (2008)";
+"++++++++++++++++++++++++++++++++++++++++++++++++++++++";
+"";format /rd 5,0;
+"N=";;n;;
+format /rd 7,2;", Average of Ti=";;meanc(t_vec);
+"Min(Ti):";;minc(t_vec);;", Max(Ti):";;maxc(t_vec);
+"";format /rd 7,3;
+"VALUES OF TEST STATISTICS";
+" Delta_tilde:     ";;Delta_tilde;;     "prob=";; 1-cdfn(delta_tilde);
+" Delta_tilde_adj: ";;Delta_tilde_adj;;  "prob=";; 1-cdfn(delta_tilde_adj);
+
+"";
+;format /rd 7,6;
+"b2_wfe (k2):";;b_wfe;
+"";
+"* Delta_tilde statistic is defined by (27), and;";
+"  Delta_tilde_adj statistic is defined by (29)";
+"  in Pesaran and Yamagata (2008), Testing Slope 
+   Homogeneity in Large Panels, Journal of Econometrics
+   142, 50-93. See also Remark 3.";
+"* b_wfe(k2) are the values of the weighted Fixed Effects 
+   estimates of k2 slope coefficients under the tests. 
+   See Remark 3.";
+endif;
+NOREPORT:
+
+retp(b_wfe,Delta_tilde,Delta_tilde_adj);
+
+endp;

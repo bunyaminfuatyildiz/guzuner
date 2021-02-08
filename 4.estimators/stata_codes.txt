@@ -1,0 +1,13 @@
+ Set panel dimensions: 			
+	. tsset id year
+Panel ARDL PMG estimator
+	. xtpmg d.lnfd d.lninc d.lnrem, lr(l.lnfd lninc lnrem) replace pmg
+Panel ARDL (Mean Group) estimator
+	. xtpmg d.lnfd d.lninc d.lnrem, lr(l.lnfd lninc lnrem) replace mg
+	. xtpmg d.lnfd d.lninc d.lnrem, lr(l.lnfd lninc lnrem) replace mg full
+CCE estimator
+        . xtmg lnfd lninc lnrem, cce full
+AMG estimator
+        . xtmg lnfd lninc lnrem, augment full
+
+

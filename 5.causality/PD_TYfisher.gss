@@ -1,0 +1,214 @@
+/* Gauss procedure for
+Emirmahmutoglu, F., Kose, N. (2011) 
+Testing for Granger causality in heterogeneous mixed panels, 
+Economic Modelling 28 (2011) 870–876.
+
+When you use this code, please cite:
+Kar, M., Nazlioglu, S., Agir, H. (2011) 
+"Financial Development and Economic Growth Nexus in the MENA Countries: 
+Bootstrap Panel Granger Causality Analysis". 
+Economic Modelling 28(1-2): 685-693.
+
+Menyah, K., Nazlioglu, S., Wolde-Rufael, Y. (2014) 
+"Financial Development, Trade Openness and Economic Growth in African Countries: 
+New Insights from a Panel Causality Approach". 
+Economic Modelling 37: 386-394.
+
+The procedure is written by Saban Nazlioglu (snazlioglu@pau.edu.tr)
+Any bugs are welcome; 25 August, 2016
+*/
+
+
+new;
+cls;
+Nb  =1000;    /*number of bootstrap replications*/
+t   =28;      /*number of time periods*/
+n   =9;       /*number of equations (cross-sections)*/
+pmax=3;       /*maximum lags*/
+dmax=1;	      /*maximum number of unit root*/
+ic  =1; 	  /*Information criterion
+                1=Akaike, 2=Schwarz */
+
+load y1[t,n]=lnfd.txt;
+load y2[t,n]=lninc.txt;   /*Ho:y2 does not cause y1*/ 
+
+Wstat=zeros(N,1);
+pval =zeros(N,1);
+lnpval=zeros(N,1);
+lag  =zeros(N,1);
+resid=zeros(t,n);
+yhat=zeros(t,n);
+
+for i(1,N,1);
+    y=y1[.,i]~y2[.,i];
+    {p}=kp(pmax,ic);
+    {y,ylag}=lagp(y,p+dmax);
+    {Wstat[i],b,z,er}=Wald(y,ylag,dmax);
+    resid[.,i]=zeros(p+dmax,1)|er[.,1];
+    yhat[.,i]=zeros(p+dmax,1)|z*b[.,1];     
+    lag[i] =p;
+    pval[i]=cdfchic(Wstat[i],p);
+    if pval[i]==0; lnpval[i]=0; endif;
+    if pval[i]>0;  lnpval[i]=ln(pval[i]); endif;   
+endfor;
+Fisher=-2*sumc(ln(pval));
+
+format /rd 8,3;
+"     i       Lag     Wald     p-val";
+"-----------------------------------";;
+seqa(1,1,N)~lag~Wstat~pval;
+"-----------------------------------";
+"Panel Fisher       ";;Fisher;
+"Asymptotic p-value ";;cdfchic(Fisher,2*N);
+pvalboot=Bootstrap(Nb);
+"Bootstrap p-value ";;pvalboot;
+
+
+/*Procedures*/
+
+/*Bootstrapt sampling*/
+proc(1)=bootstrap_sample(resid,yhat,lag);
+local tt,i,ord,resb,yb,ystar;
+  
+  tt  =rows(resid);
+  resb=zeros(t+30,n);
+  i=1;
+  do while i<=rows(resb);
+    ord=trunc(((tt-1)-1+1)*rndu(1,1)+1);
+    resb[i,.]=resid[ord,.];
+  i=i+1;
+  endo;
+
+  resb=resb[31:rows(resb),.];
+  yb=resb;
+  ystar=zeros(tt,n);
+  i=1;
+  do until i>n;
+    yb[.,i]   =yhat[.,i]+resb[.,i];
+    ystar[.,i]=y1[1:(lag[i]+dmax),i]|yb[lag[i]+dmax+1:rows(yb),i];  
+  i=i+1;
+  endo;
+retp(ystar);
+endp;
+
+/*Bootstrapt distribution*/
+proc(1)=Bootstrap(Nb);
+local Fisherboot,s,ystar,Wstat,pval,lnpval,y,p,ylag,b,z,er;
+  FisherBoot=zeros(Nb,1);
+  s=1;       
+  do while s<=Nb;
+    ystar =bootstrap_sample(resid,yhat,lag);
+    Wstat=zeros(N,1);
+    pval =zeros(N,1);
+    lnpval =zeros(N,1);    
+    for i(1,N,1);        
+        y=ystar[.,i]~y2[.,i];
+        {p}=kp(pmax,ic);
+        {y,ylag}=lagp(y,p+dmax);
+        {Wstat[i],b,z,er}=Wald(y,ylag,dmax);
+        pval[i]=cdfchic(Wstat[i],p);
+            if pval[i]==0; lnpval[i]=0; endif;
+            if pval[i]>0;  lnpval[i]=ln(pval[i]); endif;  
+    endfor;
+    FisherBoot[s]=-2*sumc(lnpval);
+    s=s+1;
+    endo;  
+    pvalboot=sumc(FisherBoot.>Fisher)/Nb;
+retp(pvalboot);
+endp;
+
+
+/*optimal frequency and lag selection*/
+proc(1)=kp(pmax,ic);
+local aicp,sbcp,p,dep,xlag,t,d,z,b,e,varcov,nk,aic,sbc;
+
+aicp=zeros(pmax,1);
+sbcp=zeros(pmax,1);
+    p=1;
+    do while p<=pmax;
+        {dep,xlag}=lagp(y,p);
+        t=rows(dep);
+        d=ones(t,1);
+        z=xlag~d;
+        b=(dep/z);
+        e=dep-z*b;
+        varcov=e'e/t;
+        nk=cols(dep);
+        aic=ln(det(VARCOV))+ (2/T)*(nk*nk*p+nk)      + nk*(1+ln(2*pi));
+        sbc=ln(det(VARCOV))+ (1/T)*(nk*nk*p+nk)*ln(T)+ nk*(1+ln(2*pi));
+        aicp[p,1]=aic;
+        sbcp[p,1]=sbc;      
+    p=p+1;
+    endo;   
+    if ic==1; p=minindc(aicp); endif;
+    if ic==2; p=minindc(sbcp); endif; 
+retp(p);        
+endp;
+
+
+/*generating y and ylags adjusted for p lags*/
+proc(2)=lagp(y,pmax);
+local nk,p,ylag,i,j,yt,yl;
+    nk=cols(y);
+    p=1;
+    do while p<=pmax;
+        ylag =zeros(rows(y),nk*p);
+    i=1;
+    do while i<=nk;    
+        j=1;
+        do while j<=p;     
+            ylag[.,j+p*(i-1)]=lagn(y[.,i],j);
+            
+        j=j+1;
+        endo;
+    i=i+1;
+    endo;
+        yt=trimr(y,p,0);
+        yl=trimr(ylag,p,0);        
+    p=p+1;
+    endo;
+retp(yt,yl);
+endp;    
+
+/*Wald stats*/
+
+proc(4)=Wald(y,ylag,dmax);
+local t,d,z,b,u,su,zhat,sud,srd,u1,lu1,
+      zr,br,ur,sr,rssr,rssur,df,f,w,lr;
+        /*Unrestric model*/
+        t=rows(y);
+        d=ones(t,1);
+        z=ylag~d;
+        b=(y/z);    
+        u=y-z*b;
+        Su=u'u;
+        /*Restricted model*/
+        if dmax==0; zr=z[.,1:p]~z[.,2*p+1:cols(z)];             endif;
+        if dmax>=1; zr=z[.,1:(p+dmax)]~z[.,2*(p+dmax):cols(z)]; endif;
+        br=(y/zr);
+        ur=y-zr*br;
+        //ur=ur[.,1]~u[.,2:cols(u)];  
+        Sr=ur'ur;
+    /*Test statistics*/
+    rssr =sr[1,1];
+    rssur=su[1,1];
+    df   =T-cols(z);
+    F    =((rssr-rssur)/p)/(rssur/df);
+    W    =F*p; //W=df*(rssr-rssur)/rssur;
+    LR   =df*(ln(rssr)-ln(rssur));//(T-p)*ln(det(Sr)/det(Su));
+retp(W,b,z,ur);
+endp;
+
+proc(1)= lagn(x,n);
+    local y;
+    if n>0; y=zeros(n,cols(x))|trimr(x,0,n);
+    else;   y=trimr(x,abs(n),0)|zeros(abs(n),cols(x));
+    endif;
+retp(y);
+endp;
+
+proc tr1(M);
+  local x;
+  x=sumc(diag(M));
+  retp(x);
+endp;

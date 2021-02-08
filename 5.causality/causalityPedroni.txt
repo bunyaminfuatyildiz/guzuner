@@ -1,0 +1,153 @@
+'written by Saban Nazlioglu (snazlioglu@pau.edu.tr)
+'Loop for: Canning and Pedroni(2008). "Causality tests for cointegrated panels", Manchester School
+
+genr x=lnfd
+genr y=lninc
+
+
+pageunstack(page=pcaus_CanPed) crossid dateid @ x y
+
+scalar n=9			'number of countries
+scalar kmax=3			'maximum number of lags
+
+scalar ind=1
+
+	vector(N) lamda1		'causality from x to y
+	vector(N) tstat1
+	vector(N) ncoef1
+	vector(N) regobs1
+	vector(N) df1
+	vector(N) pval1
+
+	vector(N) lamda2 		'causality from y to x
+	vector(N) tstat2
+	vector(N) ncoef2
+	vector(N) regobs2
+	vector(N) df2
+	vector(N) pval2
+	vector(N) ratioyx
+	vector(N) ratioxy		
+	vector(N) cross
+
+'loop for obtaining fmols residuals
+for !i= 1 to n
+	equation eqfmols{!i}.cointreg(method=fmlols, bw=neweywest, info=aic) y{!i} x{!i}
+	eqfmols{!i}.makeresids ect{!i}
+		    	
+	!mininfocrit=999999   
+	for !lag=1 to kmax
+          		var var{!i}.ls 1 !lag y{!i} x{!i}
+	if var{!i}.@aic<!mininfocrit then
+               !bestlag=!lag
+	   !mininfocrit=var{!i}.@aic
+   	endif
+
+genr dy{!i}=d(y{!i})
+genr dx{!i}=d(x{!i})
+
+'causality from x to y
+equation eqy{!i}.ls dy{!i} ect{!i}(-1) dy{!i}(-1 to -!bestlag) dx{!i}(-1 to -!bestlag) c 
+lamda1(ind)=eqy{!i}.@coef(1)
+tstat1(ind)=eqy{!i}.@tstats(1)
+ncoef1(ind)=eqy{!i}.@ncoef
+regobs1(ind)=eqy{!i}.@regobs
+df1(ind)=regobs1(ind)-ncoef1(ind)
+pval1(ind)=@tdist(tstat1(ind),df1(ind))
+
+'causality from y to x
+equation eqx{!i}.ls dx{!i} ect{!i}(-1) dy{!i}(-1 to -!bestlag) dx{!i}(-1 to -!bestlag) c 
+lamda2(ind)=eqx{!i}.@coef(1)
+tstat2(ind)=eqx{!i}.@tstats(1)
+ncoef2(ind)=eqx{!i}.@ncoef
+regobs2(ind)=eqx{!i}.@regobs
+df2(ind)=regobs2(ind)-ncoef2(ind)
+pval2(ind)=@tdist(tstat2(ind),df2(ind))
+
+ratioyx(ind)=-lamda2(ind)/lamda1(ind)
+ratioxy(ind)=-lamda1(ind)/lamda2(ind)
+
+table(n+11,9) results
+
+results.setformat(@all) f.3
+results.setformat(a) f.0
+
+results(1,1)=" Country-specific (individual) results "
+results(2,1)=" Country "
+results(2,2)=" X=>Y  "
+results(2,2)=" X=>Y  "
+
+results(2,3)=" t-stat "
+results(2,4)=" p-value "
+results(2,5)=" Y=>X "
+results(2,6)=" t-stat "
+results(2,7)=" p-value"
+results(2,8)=" Ratio(Y/X)"
+results(2,9)=" Ratio(X/Y)"
+
+results(4,2)=" Lamda1"
+results(4,5)=" Lamda2"
+results(4,8)=" -Lamda2/Lamda1"
+results(4,9)=" -Lamda1/Lamda2"
+
+setline(results,3)
+results(ind+4,1)=!i
+results(ind+4,2)=lamda1(ind)
+results(ind+4,3)=tstat1(ind)
+results(ind+4,4)=pval1(ind)
+results(ind+4,5)=lamda2(ind)
+results(ind+4,6)=tstat2(ind)
+results(ind+4,7)=pval2(ind)
+results(ind+4,8)=ratioyx(ind)
+results(ind+4,9)=ratioxy(ind)
+
+cross(ind)=ind
+
+next
+	scalar ind=ind+1
+next
+
+scalar gm2=@mean(lamda2)
+scalar gmtstat2=@mean(tstat2)
+scalar gm1=@mean(lamda1)
+scalar gmtstat1=@mean(tstat1)
+scalar pvalgm1=@dnorm(gm1)
+scalar pvalgm2=@dnorm(gm2)
+
+scalar pearson2=-2*@sum(log(pval2))
+scalar pvalp2=@chisq(pearson2,2*n)
+scalar pearson1=-2*@sum(log(pval1))
+scalar pvalp1=@chisq(pearson1,2*n)
+
+
+
+setline(results,ind+4)
+
+results(ind+5,1)=" Panel results"
+results(ind+5,2)=" Statistic"
+results(ind+5,3)=" t-statistic"
+results(ind+5,4)=" p-value"
+
+results(ind+6,1)=" X=>Y"
+results(ind+7,1)="      Group-mean"
+results(ind+7,2)=gm1
+results(ind+7,3)=gmtstat1
+results(ind+7,4)=pvalgm1
+
+results(ind+8,1)="     Lamda Pearson"
+results(ind+8,2)=pearson1
+results(ind+8,4)=pvalp1
+
+
+results(ind+9,1)=" Y=>X"
+results(ind+10,1)=" Group-mean"
+results(ind+10,2)=gm2
+results(ind+10,3)=gmtstat2
+results(ind+10,4)=pvalgm2
+
+results(ind+11,1)=" Lamda Pearson"
+results(ind+11,2)=pearson2
+results(ind+11,4)=pvalp2
+
+setline(results,ind+12)
+
+delete cross dx* dy* df* ect* eq* gm* lamda* pearson* pval* ratio* var* n kmax ncoef* regobs* ind* tstat*

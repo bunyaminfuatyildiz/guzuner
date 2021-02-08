@@ -1,0 +1,128 @@
+/*Gauss procedure for: 
+Nazlioglu, S., Karul, C. (2017) “Panel LM unit root test with gradual structural shifts” 
+40th International Panel Data Conference, July 7-8, 2017, Thessaloniki-Greece.
+
+The procedure is written by Saban Nazlioglu & Cagin Karul 
+For any bugs please send e-mai to:
+snazlioglu@pau.edu.tr
+ckarul@pau.edu.tr */
+
+new;
+cls;
+
+t=144;
+n=6;
+k=1;        /*Number of frequency*/
+
+load y[t,n]=data_rp.txt;
+
+
+fst=zeros(T,N);
+
+        for i(1,N,1);
+            {fst[.,i]}=st(y[.,i],k);
+        endfor;
+        
+ft=meanc(diff(y,1)')~meanc(fst');
+
+        LM=zeros(N,1);
+        i=1;
+        do while i<=N;
+          {LM[i]}=Fourier_LM(y[.,i],ft,k);
+        i=i+1;
+        endo; 
+        PLMk=meanc(LM);
+
+if k==1; mu=-2.952; var=0.378; endif;
+if k==2; mu=-2.216; var=0.526; endif;
+if k==3; mu=-2.072; var=0.430; endif;
+if k==4; mu=-2.027; var=0.390; endif;
+if k==5; mu=-2.005; var=0.371; endif;
+
+    
+        ZLM=sqrt(n)*((PLMk-mu)/sqrt(var));   
+       
+"tau LM";;LM;
+"PLM";;PLMk;   
+"ZLM";;ZLM; 
+"p-value    ";;1-cdfnc(ZLM);
+    
+
+proc(1)=Fourier_LM(y,ft,k);
+    local t,sink,cosk,z,zz,lm;
+    local bs,b,e,sig2,se,ssr,se1,ssr1;
+    local dy,dsink,dcosk,dz,s,ls,psi;
+        t    =rows(y);
+        sink =sin(2*pi*k*seqa(1,1,t)/t);
+        cosk =cos(2*pi*k*seqa(1,1,t)/t);
+        
+        z=seqa(1,1,t)~sink~cosk~ft;
+        dz=ones(t,1)~diff(sink,1)~diff(cosk,1)~ft;
+           
+  
+        dy   =diff(y,1);     
+        {bs,e,sig2,se1,ssr1}=ols(dy,dz);
+     
+        psi= y[1]-bs[1]-bs[2]*sin(2*pi*k/t)-bs[3]*cos(2*pi*k/t)-bs[4]*ft[1,1]-bs[5]*ft[1,2]; 
+ 
+        s  = y-psi-z*bs;
+        ls = lagp(s,1);
+        zz =ls~ones(t,1)~diff(sink,1)~diff(cosk,1)~ft;
+
+        {b,e,sig2,se,ssr}=ols(dy,zz);
+
+       
+    LM =b[1]/se[1];
+retp(LM);
+endp;   
+    
+
+proc(5) = ols(y,x);
+   local m,b,e,sig2,se,ssr;
+   m=inv(moment(x,1));
+   b=m*(x'y);
+   e=y-x*b;
+   ssr=e'e; 
+   sig2=(e'e)/(rows(y)-cols(x));
+   se=sqrt(diag(m)*sig2);
+   format 8,4;
+    retp(b,e,sig2,se,ssr);   
+endp;
+
+proc(1)= diff(x,k) ;
+    if ( k == 0); retp(x); endif ;
+    retp(zeros(k,cols(x))|trimr(x,k,0)-trimr(lagn(x,k),k,0)) ;
+endp ;
+
+
+proc(1)= lagp(x,p);
+    local y;
+    if p > 0;
+        y = zeros(p,cols(x))|trimr(x,0,p);
+    else;
+        y = trimr(x,abs(p),0)|zeros(abs(p),cols(x));
+    endif;
+    retp(y);
+endp;
+
+proc(1)=st(y,k);
+    local t,sink,cosk,z,zz,lm;
+    local bs,b,e,sig2,se,ssr,se1,ssr1;
+    local dy,dsink,dcosk,dz,s,ls,psi;
+        t    =rows(y);
+        sink =sin(2*pi*k*seqa(1,1,t)/t);
+        cosk =cos(2*pi*k*seqa(1,1,t)/t);
+        z=seqa(1,1,t)~sink~cosk;
+        dz=ones(t,1)~diff(sink,1)~diff(cosk,1); 
+              
+  
+        dy   =diff(y,1);
+            
+        {bs,e,sig2,se1,ssr1}=ols(dy,dz);
+     
+        psi= y[1]-bs[1]-bs[2]*sin(2*pi*k/t)-bs[3]*cos(2*pi*k/t);
+        s  = y-psi-z*bs;
+        ls = lagp(s,1);
+retp(ls);
+endp;
+

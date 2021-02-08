@@ -1,0 +1,129 @@
+'written by Saban Nazlioglu (snazlioglu@pau.edu.tr)
+'Loop for: Emirmahmutoglu and Kose (2010). "Testing for Granger causality in heterogeneous mixed panels", Economic Modelling
+' Optimal lags are determined by Akaike Information criterion
+
+
+pageunstack(page=pcaus_FeKose) crossid dateid @ x y
+
+scalar n=9		'number of countries
+scalar kmax=3		'maximum lags
+scalar dmax=1		'maximum integration number
+
+scalar ind=1
+	vector (N) cross
+	vector (N) lags
+	vector (N) sbc
+	vector(N) FISHERyx
+	vector(N) PVALUEyx
+	vector(N) WALDyx
+	vector(N) PVALUEwaldyx
+	
+	vector(N) FISHERxy
+	vector(N) PVALUExy
+	vector(N) WALDxy
+	vector(N) PVALUEwaldxy
+	vector(N) T1
+	vector(N) G1
+	vector(N) S1
+
+for !i= 1 to n
+	    	
+	!mininfocrit=999999 
+	for !lag=1 to kmax
+          	var var{!i}.ls 1 !lag y{!i} x{!i}
+          	
+	if var{!i}.@aic<!mininfocrit then
+               !bestlag=!lag
+	   !mininfocrit=var{!i}.@aic
+   	endif
+
+LAGS(ind)=!bestlag
+SBC(ind)=!mininfocrit
+cross(ind)=ind
+
+scalar k=!bestlag
+scalar ka=!bestlag+dmax
+
+		
+          '------------------------------------------------
+		' --- Restricted Models----
+		'------------------------------------------------
+		equation eqyx.ls y{!i}  c y{!i}(-1 to -!bestlag) y{!i}(-ka) x{!i}(-ka)	 'regression y on x
+		scalar SCRRyx=@ssr
+
+		equation eqxy.ls x{!i} c y{!i}(-ka) x{!i}(-1 to -!bestlag) x{!i}(-ka) 'regression x on y
+		scalar SCRRxy=@ssr
+
+
+           '------------------------------------------------
+		' --- Unrestricted Models----
+		'------------------------------------------------
+		equation eqryx.ls y{!i} c y{!i}(-1 to -!bestlag) y{!i}(-ka) x{!i}(-1 to -!bestlag) x{!i}(-ka) 'regression y on x
+		scalar SCRUyx=@ssr
+		T1(ind)=@REGOBS
+		G1(ind)=@NCOEF
+		S1(ind)=T1(ind)-G1(ind)
+
+		equation eqrxy.ls x{!i} c y{!i}(-1 to -!bestlag) y{!i}(-ka) x{!i}(-1 to -!bestlag) x{!i}(-ka) 'regression x on y
+		scalar SCRUxy=@ssr
+
+		'------------------------------------------------
+		' --- Individual Wald Statistics ----
+		'------------------------------------------------
+	            FISHERyx(ind)=(SCRRyx-SCRUyx)/SCRUyx*(S1(ind)/k)
+		PVALUEyx(ind)=@fdist(FISHERyx(ind),1,T1(ind))
+		WALDyx(ind)=@abs(FISHERyx(ind)*K)			'causality from x to y
+		PVALUEwaldyx(ind)=@chisq(WALDyx(ind),K)
+
+	        FISHERxy(ind)=(SCRRxy-SCRUxy)/SCRUxy*(S1(ind)/k)
+		PVALUExy(ind)=@fdist(FISHERxy(ind),1,T1(ind))
+		WALDxy(ind)=@abs(FISHERxy(ind)*K)			'causality from y to x
+		PVALUEwaldxy(ind)=@chisq(WALDxy(ind),K)
+
+table(n+9,6) results
+	results.setformat(@all) f.3
+	results.setformat(a) f.0
+
+results(1,1)=" Country-specific (individual) results "
+results(2,1)=" Country "
+results(2,2)=" Lag "
+results(2,3)=" X=>Y "
+results(2,4)=" p-value "
+results(2,5)=" Y=>x "
+results(2,6)=" p-value "
+setline(results,3)
+results(ind+4,1)=!i
+results(ind+4,2)=lags(ind)
+results(ind+4,3)=WALDyx(ind)
+results(ind+4,4)=PVALUEwaldyx(ind)
+results(ind+4,5)=WALDxy(ind)
+results(ind+4,6)=PVALUEwaldxy(ind)
+
+next
+	scalar ind=ind+1
+next
+
+
+scalar Panelyx=-2*@sum(log(PVALUEwaldyx))	'panel causality from x to y
+scalar Panelxy=-2*@sum(log(PVALUEwaldxy))	'panel causality from y to x
+
+
+setline(results,n+5)
+results(n+6,1)=" Panel results"
+results(n+6,2)=" Fisher stat."
+results(n+6,3)=" p-value"
+
+results(n+7,1)=" X=>Y"
+results(n+7,2)=panelyx
+results(n+7,3)=@chisq(panelyx,2*n)
+
+results(n+8,1)=" Y=>X"
+results(n+8,2)=panelxy
+results(n+8,3)=@chisq(panelxy,2*n)
+setline(results,n+9)
+'show results 
+'show resultsividual 
+
+
+delete cross dmax eq* fisher*  g1 ind* k ka kmax lags n panel* pval* s1 sbc scr* t1 wald* var*
+

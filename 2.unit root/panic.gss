@@ -1,0 +1,591 @@
+new;cls;
+#include panel.dec  /* for p-vals */
+
+/*
+** for analysing the factors and idiosyncr comps
+*/
+t    = 28; 
+n    = 9; 
+mod  = 2;        /* 0 = nothing, 1 = const, 2=trend */   
+pmax = 4;        /* max lags */
+fmax = 2;        /* no of fact */
+level= 0; 		 /* level=0 seviye, level=1 birinci fark*/
+
+load y[t,n]=lnfd.txt;
+
+if level==0; y=y; endif; 
+if level==1; y=y[2:T,.]-y[1:T-1,.]; endif;
+
+x=y;
+dx = diff(x,1);
+if mod eq 2; dx = dx-meanc(dx)'; endif;
+    
+pen  = 2;                           /* penalty */
+cri  = 2;                           /* 1 = pc, 2 = ic, 3 = aic/bic */
+{n_f,var_f} = fact_no(dx,mod,fmax,pen,cri);
+{f,e}       = comp(dx,n_f);
+rk_f        = rk(f,mod,pmax,"f_stat");
+rk_c        = rk(f,mod,pmax,"c_stat");
+tr_j        = tr(f,mod,pmax);
+{PCe_Choi,PCe_MW}= bai_ng(e,mod,pmax);
+
+j   = 1;
+arf = zeros(3,n_f);
+do while j <= n_f;
+arf[.,j] = df_plus(f[.,j],mod,ic_ur(f[.,j],mod,pmax));
+j        = j + 1;
+endo;
+
+
+/* printing options */
+
+format/m1/rd 8,0;
+"# of factors";; n_f;
+
+format/m1/rd 8,4;
+"PCe_Choi       ";;PCe_Choi;;  "    p-value";;1-cdfn(PCe_Choi);
+"PCe_MW         ";;PCe_MW;;    "    p-value";;cdfChic(PCe_MW, 2*n);
+
+
+
+
+/* procs */
+
+proc(2) = fact_no(dy,mod,max,pen,cri);
+local f,l,nf,var;
+
+nf    = fact(dy,max,pen,cri);
+{f,l} = prin(dy,nf);
+var   = (stdc(f)^2)./(stdc(vec(dy))^2);
+
+retp(nf,100*var');
+endp;
+
+
+
+proc(2) = comp(y,m);
+local n,f,l;
+
+n     = cols(y);
+{f,l} = prin(y,m);
+y     = (zeros(1,n)|y);
+f     = (zeros(1,m)|f);
+
+retp(cumsumc(f),cumsumc(y-f*l'));
+endp;
+
+
+
+proc(1) = tr(x,mod,pmax);
+local dx,xl,t,r0,rl,sl0,s00,sll,v,tr,p,d;
+
+t = rows(x);
+
+if mod gt 0; 
+d = detm(t,mod);
+x = (eye(t)-d*inv(d'd)*d')*x;
+endif;
+
+dx  = diff(x,1);
+xl  = x[1:t-1,.];
+p   = ic_var(x,mod,pmax);
+if p gt 0; r0 = proj_tr(dx,dx,p); rl = proj_tr(xl,dx,p); endif;
+if p eq 0; r0 = dx;               rl = xl;               endif;
+sl0 = (rl'r0)/t;
+s00 = (r0'r0)/t; 
+sll = (rl'rl)/t; 
+
+v  = eig(inv(sll)*sl0*inv(s00)*(sl0'));
+v  = trun((1-v),0.01);
+tr = -t*rev(cumsumc(rev(sortc(ln(v),1))))'; 
+
+retp(tr);
+endp;
+
+
+proc(1) = trun(x,c);
+retp(x + (c-x).*(x .lt c)+(1-c-x).*(x .gt (1-c)));
+endp;
+
+
+
+proc (1) = proj_tr(y,x,p);
+local t,k,xl,b,u;
+
+t  = rows(x);
+k  = cols(x);
+
+xl = shiftr((ones(1,p).*.x)',(seqa(1-p,1,p).*.ones(k,1)),miss(0,0))';
+xl = xl[1:t-p,.];
+y  = y[1+p:t,.];
+b  = inv(xl'xl)*(xl'y);
+u  = y - xl*b;          
+
+retp(u);
+endp;
+
+
+proc(1) = cr_tr(mod,m);
+local cr;
+
+if mod eq 1; cr = { 3.9532 15.5559 29.8406 47.9883 69.3569 95.0312 };  endif;
+if mod eq 2; cr = { 3.8828 18.0253 35.0616 55.0733 78.5289 106.5015 }; endif;
+
+cr = rev(cr);
+
+retp(cr[m]);
+endp;
+
+
+
+
+
+
+proc (1) = detr(y,p);
+local t,e,x;
+
+t = rows(y);
+x = ((seqa(1,1,t).*ones(t,p)).^(seqa(0,1,p)'));
+e = (eye(t) - x*inv(x'x)*x')*y;  
+
+retp(e);
+endp;
+
+
+
+
+proc(1) = cr_rk(mod,m);
+local cr;
+
+if mod eq 1; cr = { -13.730, -23.535, -32.296, -40.442, -48.617, -57.040 }; endif;
+if mod eq 2; cr = { -21.313, -31.356, -40.180, -48.421, -55.818, -64.393 }; endif;
+
+retp(cr[m]);
+endp;
+
+
+
+proc(1) = rk_ur(f,mod,pmax);
+local t,m,i,par,tr,pval,qval,j,p;
+
+t = rows(f);
+m = cols(f);
+
+i    = 1;
+par  = 1./(1|t|t^2);
+tr   = zeros(m,1);
+pval = zeros(m,1);
+if mod eq 0; qval = coe_adfnc*par; endif;
+if mod eq 1; qval = coe_adfc*par;  endif;
+if mod eq 2; qval = coe_adft*par;  endif;
+do while i <= m;
+
+p     = ic_ur(f[.,i],mod,pmax);
+tr[i] = df(f[.,i],mod,p);
+
+if tr[i] < qval[1];  
+pval[i] = 0.0000001;
+elseif tr[i] > qval[399]; 
+pval[i] = 0.9999999;
+else; 
+j = minindc(abs(qval-tr[i]));
+pval[i] = df_prob[j];
+endif;
+
+i = i + 1;
+endo;
+
+retp(-2*rev(cumsumc(rev(sortc(ln(pval),1))))'); 
+endp; 
+
+
+
+
+proc (1) = rk(f,mod,pmax,st);
+local t,m,nf,qmc,qmf,qm,f0,v,f1,yc,y1,yp,o,s,yl,y0,d,p;
+
+t  = rows(f);
+nf = cols(f);
+
+m   = nf;
+qmc = zeros(m,1);
+qmf = zeros(m,1);
+do while m > 0;
+
+if mod gt 0; 
+d = detm(t,mod);
+f = (eye(t)-d*inv(d'd)*d')*f;
+endif;
+
+{f0,v,f1}     = svd1(f'f);
+yc            = f*f0[.,1:m];
+y1            = proj_rk(yc,yc,1);
+p             = ic_var(yc,mod,pmax);
+if p gt 0; yp = proj_rk(diff(yc,1),yc,p);  endif;
+if p eq 0; yp = yc;                        endif;
+
+yl            = yp[1:t-p-1,.];
+y0            = yp[2:t-p,.];
+{f0,v,f1}     = svd1((1/2)*(y0'yl+yl'y0)*inv(yl'yl));
+qmf[nf+1-m,.] = t*(v[m,m]-1);
+
+o             = lcov(y1,pmax);                
+s             = (y1'y1)/t;
+yl            = yc[1:t-1,.];
+y0            = yc[2:t,.];
+{f0,v,f1}     = svd1((1/2)*((y0'yl+yl'y0)-t*(o-s))*inv(yl'yl));
+qmc[nf+1-m,.] = t*(v[m,m]-1);
+
+m  = m - 1;
+endo;
+
+if st $== "f_stat"; qm = qmf'; endif;
+if st $== "c_stat"; qm = qmc'; endif;
+
+retp(qm);
+endp;
+
+
+proc (1) = proj_rk(x,y,p);
+local k,x0,xl,b,u;
+
+k  = cols(x);
+xl = shiftr((ones(1,p).*.x)',(seqa(1-p,1,p).*.ones(k,1)),miss(0,0))';
+x0 = trimr(x,p,0);
+xl = trimr(xl,0,p);
+b  = inv(xl'xl)*(xl'x0);
+
+xl = shiftr((ones(1,p).*.y)',(seqa(1-p,1,p).*.ones(k,1)),miss(0,0))';
+x0 = trimr(y,p,0);
+xl = trimr(xl,0,p);
+u  = x0 - xl*b;          
+
+retp(u);
+endp;
+
+
+
+
+proc (1) = ic_var(x,mod,pmax);
+local t,s,b,e,k,n,l,p,dx,xl;
+
+t = rows(x);
+k = cols(x);
+
+p = pmax; 
+n = zeros(1,2);
+do while p gt -1;
+
+dx = diff(x,1);
+
+if mod eq 0 and p gt 0; xl = lagp(dx,p);                 endif;
+if mod ne 0 and p gt 0; xl = detm(t-p-1,mod)~lagp(dx,p); endif;
+if mod ne 0 and p eq 0; xl = detm(t-1,mod);              endif;
+if mod eq 0 and p eq 0; e  = dx; goto out;               endif;
+
+dx = dx[p+1:t-1,.];
+b  = inv(xl'xl)*(xl'dx);
+e  = dx - xl*b;
+
+out:
+
+s  = (e'e)/rows(e);
+l  = ln(det(s))+(p+1)*(k^2)*ln(t)/t;
+n  = n|(l~p);
+
+p = p - 1;
+endo;
+
+n = n[2:rows(n),.];
+n = sortc(n,1);
+
+retp(n[1,2]);
+endp;
+
+
+
+
+
+proc (1) = ic_ur(x,mod,pmax);
+local t,s,b,e,k,n,l,p,dx,xl;
+
+t = rows(x);
+
+p = pmax; 
+n = zeros(1,2);
+do while p gt -1;
+
+xl = x[p+1:t-1,.];
+dx = diff(x,1);
+
+if mod eq 0 and p gt 0; xl = xl~lagp(dx,p);                 endif;
+if mod ne 0 and p gt 0; xl = xl~detm(t-p-1,mod)~lagp(dx,p); endif;
+if mod ne 0 and p eq 0; xl = xl~detm(t-1,mod);              endif;
+
+dx = dx[p+1:t-1,.];
+b  = inv(xl'xl)*(xl'dx);
+e  = dx - xl*b;
+s  = (e'e)/rows(e);
+l  = ln(s)+(p+1)*ln(t)/t;
+n  = n|(l~p);
+
+p = p - 1;
+endo;
+
+n = n[2:rows(n),.];
+n = sortc(n,1);
+
+retp(n[1,2]);
+endp;
+
+
+
+
+proc(1) = pvals(y,mod,l);
+local t,n,i,par,tr,pval,qval,j;
+
+t = rows(y);
+n = cols(y);
+
+i    = 1;
+par  = 1./(1|t|t^2);
+tr   = zeros(n,1);
+pval = zeros(n,1);
+if mod eq 0; qval = coe_adfnc*par; endif;
+if mod eq 1; qval = coe_adfc*par;  endif;
+if mod eq 2; qval = coe_adft*par;  endif;
+do while i <= n;
+
+tr[i] = df(y[.,i],mod,l[i]);
+
+if tr[i] < qval[1];  
+pval[i] = 0.0001;
+elseif tr[i] > qval[399]; 
+pval[i] = 0.9999;
+else; 
+j = minindc(abs(qval-tr[i]));
+pval[i] = df_prob[j];
+endif;
+
+i = i + 1;
+endo;
+
+retp(pval); 
+endp; 
+
+
+
+
+proc(2) = bai_ng(y,mod,pmax);
+local n,i,p,tr,pr;
+local PCe_Choi,PCe_MW;
+    
+n = cols(y);
+
+i = 1;
+p = zeros(n,1);
+do until i > n;
+p[i] = ic_ur(y[.,i],mod,pmax);
+i    = i + 1;
+endo;
+
+pr = pvals(y,mod,p);
+/*page 1140 in Bai and Ng (2004)*/
+PCe_Choi=(-2*sumc(log(pr))-2*N)/sqrt(4*N);   /*Pooled test standardized statistic (Choi 2001) with N(0,1) under H0*/
+PCe_MW=-2*sumc(log(pr));                    /* Pooled test statistic (Maddala Wu 1999) with chi-sqaure(2N) under H0*/
+tr=PCe_Choi|PCe_MW;
+retp(PCe_Choi,PCe_MW);
+endp;
+
+
+proc(1) = df(y,mod,p);
+local t,yl,dy,v,b,e,s,tr;
+
+t  = rows(y);
+yl = y[p+1:t-1,.];
+dy = diff(y,1);
+
+if mod eq 0 and p gt 0; v = yl~lagp(dy,p);                  endif;
+if mod eq 0 and p eq 0; v = yl;                             endif;
+if mod ne 0 and p gt 0; v = yl~detm(t-p-1,mod)~lagp(dy,p);  endif;
+if mod ne 0 and p eq 0; v = yl~detm(t-p-1,mod);             endif;
+
+dy  = dy[p+1:t-1];
+b   = inv(v'v)*(v'dy);
+e   = dy - v*b;
+s   = (e'e)/rows(e);
+s   = inv(v'v/s);
+tr  = b[1]/sqrt(s[1,1]);
+
+retp(tr);
+endp;
+
+
+
+proc(1) = df_plus(y,mod,p);
+local t,yl,dy,v,b,e,s,tr;
+
+t  = rows(y);
+yl = y[p+1:t-1,.];
+dy = diff(y,1);
+
+if mod eq 0 and p gt 0; v = yl~lagp(dy,p);                  endif;
+if mod eq 0 and p eq 0; v = yl;                             endif;
+if mod ne 0 and p gt 0; v = yl~detm(t-p-1,mod)~lagp(dy,p);  endif;
+if mod ne 0 and p eq 0; v = yl~detm(t-p-1,mod);             endif;
+
+dy  = dy[p+1:t-1];
+b   = inv(v'v)*(v'dy);
+e   = dy - v*b;
+s   = (e'e)/rows(e);
+s   = inv(v'v/s);
+tr  = b[1]/sqrt(s[1,1]);
+
+retp((b[1]+1)|sqrt(s[1,1])|tr);
+endp;
+
+
+
+
+
+
+proc(1) = detm(t,mod);
+local d;
+
+if mod eq 1; d = ones(t,1);             endif;
+if mod eq 2; d = ones(t,1)~seqa(1,1,t); endif;
+
+retp(d);
+endp;
+
+
+
+
+proc (1) = lagp(x,p);
+local t,i,xl;
+
+t = rows(x);
+
+i  = 1;
+xl = lagn(x,1);
+do while i < p;
+i  = i + 1;
+xl = (xl~lagn(x,i));
+endo;
+
+if p gt 0; xl = trimr(xl,p,0); endif;
+if p eq 0; xl = trimr(xl,1,0); endif;
+
+retp(xl); 
+endp;
+
+
+
+proc lagn(x,n);
+local y;
+y = shiftr(x',n,(miss(0,0))');
+retp(y');
+endp;
+
+
+proc diff(x,k);
+if k == 0;
+retp(x);
+endif;
+retp(trimr(x,k,0)-trimr(lagn(x,k),k,0));
+endp;
+
+
+proc (1) = fact(e,nf,p,c);
+local t,n,pen,cr,k,s,smax,u,f,lam;
+
+t       = rows(e);
+n       = cols(e);   
+{f,lam} = prin(e,nf);
+u       = e - f*lam';
+smax    = sumc(sumc(u.^2))/(n*t);
+
+k    = 1;
+cr   = zeros(nf,1);  
+do while k <= nf;
+
+{f,lam} = prin(e,k);
+u       = e - f*lam';
+s       = sumc(sumc(u.^2))/(n*t);
+
+if c == 1 or c == 2;
+if p == 1; pen = (n+t)/(n*t)*log((n*t)/(n+t));  endif;
+if p == 2; pen = (n+t)/(n*t)*log(minc(n|t));    endif;
+if p == 3; pen = (log(minc(n|t))/minc(n|t));    endif;
+endif;
+
+if c == 3;
+if p == 1; pen = 2*(n+t-k)/(n*t);           endif;  /* aic */
+if p == 2; pen = (n+t-k)*log(n*t)/(n*t);    endif;  /* bic */
+
+endif;
+
+if c == 1; cr[k] = s + k*smax*pen;      endif;  /* pc */
+if c == 2; cr[k] = log(s) + k*pen;      endif;  /* ic */
+if c == 3; cr[k] = s + k*smax*pen;      endif;  /* aic/bic */
+
+k = k+1;
+endo;
+
+cr = sortc(seqa(1,1,rows(cr))~cr,2);
+
+retp(cr[1,1]);
+endp;
+
+
+
+proc (2) = prin(e,nf);
+local t,n,f0,v,f,lam;
+
+t = rows(e);
+n = cols(e);
+
+if n > t;
+{f0,v,f}  = svd1(e*e');
+f         = f0[.,1:nf]*sqrt(t);
+lam       = (e'f)/t;
+else;
+
+{f0,v,f}  = svd1(e'e);
+lam       = f0[.,1:nf]*sqrt(n);
+f         = (e*lam)/n;
+endif;
+
+retp(f,lam);
+endp;
+
+
+
+proc(1) = lcov(u,p);
+local t,s,io;
+
+t 	= rows(u);
+s   = (u'u)/t;
+io 	= fejer(u,p);
+s   = s + io + io';	
+
+retp(s);
+endp;
+
+
+proc fejer(uv,k);
+local i,m,a,t1,t2,f;
+
+i = 1;
+a = 0;
+do until i > k;
+f = i/(k+1);
+m = 1 - f;
+t1 = trimr(uv,i,0);
+t2 = trimr(lagn(uv,i),i,0);
+a = a + m*(t1't2);
+i = i + 1;
+endo;
+
+retp(a/rows(uv));
+endp;

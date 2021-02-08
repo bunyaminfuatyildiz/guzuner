@@ -1,0 +1,255 @@
+/*Gauss procedure for: 
+Nazlioglu, S., Karul, C. (2015) “The Flexible Fourier Form and Panel Stationary Test with Gradual Shifts”.  
+International Conference on New Trends in Econometrics and Finance Conference, 
+March 23 – 28, 2015, Sharjah-Dubai.
+ 
+Nazlioglu, S., Karul, C. (2015) “The Flexible Fourier Form and Panel Stationary Test with Gradual Shifts”.  
+2nd Annual Conference of International Association for Applied Econometrics, 
+June 25 – 27, 2015, Thessaloniki-Greece.
+
+The procedure written by Saban Nazlioglu 
+For any bugs please send e-mai to:snazlioglu@pau.edu.tr
+16 December 2014*/
+
+new;
+cls;
+
+d=2;        /*1=constant (level shift model) 
+              2=constant and trend (trend shift model)*/
+k=1;        /*Number of frequency*/
+varm=2;     /*long-run variance estimation method*/
+            /*1=iid; 2=bartlett; 3=QS; 
+              4=SPC with bartlett; 
+              5=SPC with QS; 
+              6=Kurozumi*/
+              
+format /rd 8,4;
+
+load y[28,9]=lnfd.txt; 
+
+t =rows(y);
+n =cols(y);
+ft=meanc(y');            /*Cross-section averages*/      
+"   i        FKPSS   b_Ft     t_Ft ";
+"  ------   -------  ------  ------ ";
+         KPSS=zeros(N,1);
+         i=1;
+         do while i<=N;
+                {KPSS[i],b,se}=Fourier_KPSS(y[.,i],d,k,ft);   /*Individual statistics*/
+             i~KPSS[i]~b~b./se;
+         i=i+1;
+         endo;
+        
+         FPk=meanc(KPSS);    /*Fourier panel statistic*/
+         if d==1 and k==1; mu=0.0658; var=0.0029; endif;
+         if d==1 and k==2; mu=0.1410; var=0.0176; endif;
+         if d==1 and k==3; mu=0.1550; var=0.0202; endif;
+         if d==1 and k==4; mu=0.1600; var=0.0214; endif;
+         if d==1 and k==5; mu=0.1630; var=0.0219; endif;
+  
+         if d==2 and k==1; mu=0.0295; var=0.00017; endif;
+         if d==2 and k==2; mu=0.0523; var=0.00150; endif;
+         if d==2 and k==3; mu=0.0601; var=0.00169; endif;
+         if d==2 and k==4; mu=0.0633; var=0.00180; endif;
+         if d==2 and k==5; mu=0.0642; var=0.00179; endif;           
+         FZk=sqrt(n)*(FPk-mu)/sqrt(var);
+                 "";
+                 " LM_mean";;FPk;
+                 " Mean   ";;mu;
+                 " Var.   ";;var;   
+                 "P_FKPSS ";;FZk; 
+                 "p-value ";;cdfnc(FZk);
+       
+proc(3)=Fourier_KPSS(y,d,k,ft);
+ local t,sink,cosk,z,s,lrv,kpss;
+ local b,e1,sig2,se,ssr;
+ local vare,l,bw,w;
+   t   =rows(y);
+   sink=sin(2*pi*k*seqa(1,1,t)/t);
+   cosk=cos(2*pi*k*seqa(1,1,t)/t);
+    
+   if d==1; z=ones(t,1)~sink~cosk~ft;              endif;
+   if d==2; z=ones(t,1)~seqa(1,1,t)~sink~cosk~ft;  endif;
+        
+   {b,e1,sig2,se,ssr}=ols(y,z);
+   S    = cumsumc(e1);                /*partial sum of residuals*/
+    
+    if     varm==1; lrv=ssr/t;
+    elseif varm==2;                 /*Barlett*/
+        varE=e1'e1/T;
+        l=round(4*(T/100)^(2/9));   /*bandwidth*/
+        bw=1;
+        do while bw<=trunc(l);
+            w=(1-bw/(l+1));     
+            lrv=varE+2*e1[1:T-bw]'*e1[1+bw:T]*w/T;
+        bw=bw+1;
+        endo;
+    elseif varm==3;                /*Quadratic spectral*/
+        varE=e1'e1/T;
+        l=round(4*(T/100)^(2/9));   /*bandwidth*/
+        bw=1;
+        do while bw<=trunc(l);
+            w=25/(12*pi^2*(bw/l)^2)*(sin(6*pi*bw/(l*5))/(6*pi*bw/(l*5))-cos(6*pi*bw/(l*5)));
+            lrv=varE+2*e1[1:T-bw]'*e1[1+bw:T]*w/T;
+        bw=bw+1;
+        endo;
+    elseif varm==4; lrv=alrvr_spc_bartlett(e1,5);
+    elseif varm==5; lrv=alrvr_spc_quadratic(e1,5);
+    elseif varm==6; lrv=alrvr_kurozumi(e1);
+    endif;    
+    KPSS =sumc(s.*s)/(t^2*lrv);
+retp(KPSS,b[cols(z)],se[cols(z)]);
+endp;
+
+
+proc(5) = ols(y,x);
+   local m,b,e,sig2,se,ssr;
+   m=inv(moment(x,1));
+   b=m*(x'y);
+   e=y-x*b;
+   ssr=e'e; 
+   sig2=(e'e)/(rows(y)-cols(x));
+   se=sqrt(diag(m)*sig2);
+   format 8,4;
+    retp(b,e,sig2,se,ssr);   
+endp;
+
+proc(1)= diff(x,k) ;
+    if ( k == 0); retp(x); endif ;
+    retp(zeros(k,cols(x))|trimr(x,k,0)-trimr(lagn(x,k),k,0)) ;
+endp ;
+
+
+proc(1)= lagp(x,p);
+    local y;
+    if p > 0;
+        y = zeros(p,cols(x))|trimr(x,0,p);
+    else;
+        y = trimr(x,abs(p),0)|zeros(abs(p),cols(x));
+    endif;
+    retp(y);
+endp;
+
+/*Procedures for long-run consistent variance estimations*/
+/* Sul, Phillips and Choi (2003). Bartlett*/
+proc(1)=alrvr_spc_bartlett(e,lags);
+	local t, i, temp, j, rho_temp, res_temp, rho, a, res;
+    local BIC, min_BIC, k, l, lrv, w, lrv_recolored;
+	
+    t=rows(e); 
+    if lags <= 0; lags=1; endif;
+
+    min_BIC = 1e25;
+    i=1;
+    do until i > lags;
+        temp=e;
+        j=1;
+        do until j>i;
+            temp=temp~lagn(e,j);
+            j=j+1;
+        endo;
+
+        temp=trimr(temp,i,0);
+        rho_temp=temp[.,1]/temp[.,2:cols(temp)];            @ Autoregressive coefficients @
+        res_temp=temp[.,1]-temp[.,2:cols(temp)]*rho_temp;   @ OLS residuals @
+        BIC = ln(res_temp'res_temp/(t-lags))+(i*ln(t-lags)/(t-lags));
+        if BIC < min_BIC;
+            min_BIC = BIC;
+            k=i;
+            rho=rho_temp;
+            res=res_temp; @ Prewithening @
+        endif;       
+      i=i+1;
+      endo;
+
+    temp=trimr(res~lag(res),1,0);
+    a=temp[.,1]/temp[.,2];                        @ AR(1) approximation as in Andrews and Monahan (1992, pag. 958) @
+	l = 1.1447*(4*a^2*T/((1+a)^2*(1-a)^2))^(1/3); @ The bandwidth for the spectral window @
+	l=trunc(l);                                   @ Truncate the estimated bandwidth @
+	lrv=res'res/t;                                @ Short-run variance @
+      
+    @ loop for long-run variance @
+	i=1; 
+	do until i>l; 
+    		w=(1-i/(l+1));                      @ Bartlett kernel @
+     		lrv=lrv+2*res[1:rows(res)-i]'res[1+i:rows(res)]*w/t; 
+		i=i+1; 
+	endo;
+	lrv_recolored=lrv/(1-sumc(rho))^2;          @ Recoloring @
+    lrv=minc(lrv_recolored|(T*lrv));            @ Sul, Phillips and Choi (2003) boundary rule @
+retp(lrv);
+endp;
+
+
+/* Sul, Phillips and Choi (2003). Quadratic Spectral kernel*/
+proc(1)=alrvr_spc_quadratic(e,lags);
+	local t, i, temp, j, rho_temp, res_temp, rho, a, res;
+    local BIC, min_BIC, k, l, lrv, w, lrv_recolored;
+
+	t=rows(e); 
+    if lags <= 0;lags=1; endif;
+
+    min_BIC = 1e25;
+    i=1;
+    do until i > lags;
+        temp=e;
+        j=1;
+        do until j>i;
+            temp=temp~lagn(e,j);
+            j=j+1;
+        endo;
+        temp=trimr(temp,i,0);
+        rho_temp=temp[.,1]/temp[.,2:cols(temp)];                    @ Autoregressive coefficients @
+        res_temp=temp[.,1]-temp[.,2:cols(temp)]*rho_temp;           @ OLS residuals @
+        BIC = ln(res_temp'res_temp/(t-lags))+(i*ln(t-lags)/(t-lags));
+        if BIC < min_BIC;
+            min_BIC = BIC;
+            k=i;
+            rho=rho_temp;
+            res=res_temp;                                           @ Prewithening @
+        endif;       
+      i=i+1;
+      endo;
+
+    temp=trimr(res~lag(res),1,0);
+    a=temp[.,1]/temp[.,2];                          @  AR(1) approximation as in Andrews and Monahan (1992, pag. 958) @
+	l = 1.3221*(4*a^2*T/((1+a)^2*(1-a)^2))^(1/5);   @ Obtaining the bandwidth for the spectral window @
+	l=trunc(l);                                     @ Truncate the estimated bandwidth @
+	lrv=res'res/t;                                  @ Short-run variance @
+
+    @ loop for long-run variance @
+	i=1; 
+	do until i>l; 
+            w=25/(12*pi^2*(i/l)^2)*(sin(6*pi*i/(l*5))/(6*pi*i/(l*5))-cos(6*pi*i/(l*5))); @ Quadratic spectral kernel @
+     		lrv=lrv+2*res[1:rows(res)-i]'res[1+i:rows(res)]*w/t; 
+		i=i+1; 
+	endo;
+	lrv_recolored=lrv/(1-sumc(rho))^2;          @ Recoloring @
+    lrv=minc(lrv_recolored|(T*lrv));            @ Sul, Phillips and Choi (2003) boundary rule @
+retp(lrv);
+endp;
+
+
+/*Andrews (1991) and Kurozumi (2002)*/
+proc(1)=alrvr_kurozumi(e);
+	local t, a, k, l, lrv, i, w, res;
+
+	t=rows(e); 
+	a = e[2:t]/e[1:t-1];                                @ AR(1) estimate @
+	k=0.7;                                              @ Defines the upper bound @
+	l = minc(1.1447*(4*a^2*T/((1+a)^2*(1-a)^2))^(1/3)
+		    |1.1447*(4*k^2*T/((1+k)^2*(1-k)^2))^(1/3));   
+    l=trunc(l);                                         /*Truncate the estimated bandwidth*/
+    lrv=e'e/t;                                          /*Short-run variance*/
+    
+    @ loop for long-run variance @
+	i=1; 
+	do until i>l; 
+    		w=(1-i/(l+1));                              @ Bartlett kernel @
+     		lrv=lrv+2*e[1:t-i]'e[1+i:t]*w/t; 
+		i=i+1; 
+	endo;
+retp(lrv);
+endp;
+
+
